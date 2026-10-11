@@ -19,3 +19,12 @@ request body:
 3. DELETE /postitions/{positionId}/bedds/{beddId} - для отзыва своей ставки.
 
 4. POST /candidates - Для передачи данных о кандидате
+
+5. POST /postitions/{positionId}/winner - Для определения победителя. Наиболее высокая ставка по позиции аукциона
+
+
+**Интеграции**
+
+DeliveryService предоставляет синхронный rpc-интерфейс для получения информации о победителе.
+
+В случае недоступности DeliveryService, BiddingService может сам предоставить данные о победителе логикой, реализованной в рамках POST /postitions/{positionId}/winner
