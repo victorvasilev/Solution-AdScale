@@ -19,6 +19,7 @@ System_Ext(paymentGateway, "Платёжный шлюз", "Обработка п
 System_Boundary(adServerBoundary, "Ad Server Microservice") {
 
     Container(adServer, "Ad Server", "C++, Go", "Принимает HTTP/OpenRTB-запросы, определяет пользователя, подбирает кандидатов в рекламу")
+
 }
 
 ' ====================== Оставшийся монолит ======================
@@ -35,10 +36,14 @@ System_Boundary(monolith, "AdScale Monolith (C++ / Go / Python / Node.js)") {
     Container(analyticsService, "Analytics Service", "Python", "Аналитические SQL-запросы по production-БД")
 
     Container(adCabinet, "Advertiser Dashboard", "Node.js + JavaScript", "Web UI: управление кампаниями, отчётность")
+
+    Container(Kafka, "Kafka", "Apache Kafka", "Брокер сообщений")
 }
 
 ' ====================== База данных ======================
-ContainerDb(postgres, "PostgreSQL", "PostgreSQL (одна инстанция)", "Единая БД: кампании, ставки, события, финансы, аналитика")
+ContainerDb(postgres, "PostgreSQL main", "PostgreSQL", "Основная БД: кампании, ставки, финансы")
+ContainerDb(postgresReplica, "PostgreSQL replica", "PostgreSQL", "Реплика БД: кампании, события, аналитика")
+
 
 ' ====================== Внешние связи ======================
 Rel_U(dspPartner, adServer, "Bid-requests / responses", "HTTPS / OpenRTB")
@@ -50,7 +55,9 @@ Rel(advertiser, adCabinet, "Управляет кампаниями и бюдж�
 Rel(adCabinet, paymentGateway, "Пополнение бюджета", "HTTPS / REST")
 
 ' ====================== Взаимодействие микросервиса с монолитом ======================
-Rel(adServer, auctionEngine, "Передаёт кандидатов на аукцион", "Internal API / HTTP")
+Rel(adServer, "Kafka", "Передаёт кандидатов на аукцион", "Kafka")
+
+Rel(Kafka, auctionEngine, "Передаёт кандидатов на аукцион", "Kafka")
 
 Rel(auctionEngine, deliveryService, "Передаёт победителя аукциона", "Internal Call")
 
@@ -62,7 +69,10 @@ Rel(adCabinet, financialService, "Управление финансами", "Int
 Rel(adCabinet, analyticsService, "Запросы аналитики", "Internal Call")
 
 ' ====================== Связи с БД ======================
-Rel(adServer, postgres, "Чтение данных для таргетинга", "JDBC / Sync")
+Rel(adServer, postgresReplica, "Чтение данных для таргетинга", "JDBC / Sync")
+
+Rel(postgres, postgresReplica, "Пишет реплику", "JDBC / Sync")
+
 
 Rel(auctionEngine, postgres, "Читает ставки и кампании", "JDBC / Sync")
 
@@ -70,7 +80,7 @@ Rel(statsService, postgres, "Прямая запись событий", "JDBC / 
 
 Rel(financialService, postgres, "Транзакции и балансы", "JDBC")
 
-Rel(analyticsService, postgres, "Тяжёлые аналитические запросы", "JDBC")
+Rel(analyticsService, postgresReplica, "Тяжёлые аналитические запросы", "JDBC")
 
 Rel(adCabinet, postgres, "CRUD-операции", "JDBC")
 
@@ -95,15 +105,6 @@ note right of auctionEngine
   Синхронные вызовы к БД
   в hot path (SLA <= 100 мс)
   Зависимость от монолита сохраняется
-end note
-
-note right of postgres
-  **Single Point of Failure**
-  Одна инстанция — нет HA
-  Нет read-replicas
-  OLTP + аналитика конкурируют
-  Ad Server и монолит используют
-  общую БД
 end note
 
 note bottom of statsService
